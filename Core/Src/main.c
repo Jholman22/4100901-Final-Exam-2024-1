@@ -51,15 +51,20 @@ I2C_HandleTypeDef hi2c1;
 UART_HandleTypeDef huart2;
 
 /* USER CODE BEGIN PV */
+#define DISPLAY_BUFFER_LEN 6  // Para mostrar hasta 6 caracteres (ajustar si es necesario)
+
+char usart2_display_buffer[DISPLAY_BUFFER_LEN] = {0};  // Buffer para los datos del USART2
+char keypad_display_buffer[DISPLAY_BUFFER_LEN] = {0};  // Buffer para los datos del keypad
+
 #define KEYPAD_RB_LEN 4
 uint8_t keypad_data = 0xFF;
 uint8_t keypad_buffer[KEYPAD_RB_LEN];
 ring_buffer_t keypad_rb;
 
-#define USART2_RB_LEN 4
+#define USART2_RB_LEN 6
 uint8_t usart2_data = 0xFF;
 uint8_t usart2_buffer[USART2_RB_LEN];
-ring_buffer_t usart2_rb;
+ring_buffer_t usart2_rb	;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -81,32 +86,76 @@ int _write(int file, char *ptr, int len)
 
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 {
-	/* Data received in USART2 */
-	if (huart->Instance == USART2) {
-		if (usart2_data >= '0' && usart2_data <= '9') {
-			ring_buffer_write(&usart2_rb, usart2_data);
-			if (ring_buffer_is_full(&keypad_rb) != 0) {
+    if (huart->Instance == USART2) {
+        // Si el dato es un dígito válido (0-9)
+        if (usart2_data >= '0' && usart2_data <= '9') {
+            // Mover los datos hacia la izquierda para hacer espacio para el nuevo
+            for (int i = 0; i < DISPLAY_BUFFER_LEN - 1; i++) {
+                usart2_display_buffer[i] = usart2_display_buffer[i + 1];
+            }
+            usart2_display_buffer[DISPLAY_BUFFER_LEN - 1] = usart2_data; // Guardar el nuevo dato
 
-			}
-		}
-		HAL_UART_Receive_IT(&huart2, &usart2_data, 1);
-	}
+            actualizar_pantalla(); // Actualizar la pantalla
+        }
+
+        // Volver a habilitar la recepción por interrupción
+        HAL_UART_Receive_IT(&huart2, &usart2_data, 1);
+    }
+}
+void limpiar_buffer_usart2(void)
+{
+    memset(usart2_display_buffer, 0, sizeof(usart2_display_buffer));
+}
+
+void limpiar_buffer_keypad(void)
+{
+    memset(keypad_display_buffer, 0, sizeof(keypad_display_buffer));
 }
 
 void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 {
-	if (GPIO_Pin == B1_Pin) {
+    uint8_t key_pressed = keypad_scan(GPIO_Pin); // Escanear la tecla presionada
+    if (key_pressed != 0xFF) {  // Si una tecla fue presionada
+        if (key_pressed == '#') {
+            // Reiniciar el buffer de USART2
+            limpiar_buffer_usart2();
+        } else if (key_pressed == '*') {
+            // Reiniciar el buffer del keypad
+            limpiar_buffer_keypad();
+            actualizar_pantalla();
+        } else {
+            // Mover los datos hacia la izquierda para hacer espacio para el nuevo
+            for (int i = 0; i < DISPLAY_BUFFER_LEN - 1; i++) {
+                keypad_display_buffer[i] = keypad_display_buffer[i + 1];
+            }
+            keypad_display_buffer[DISPLAY_BUFFER_LEN - 1] = key_pressed; // Guardar la tecla presionada
+        }
 
-		return;
-	}
-	uint8_t key_pressed = keypad_scan(GPIO_Pin);
-	if (key_pressed != 0xFF) {
-		ring_buffer_write(&keypad_rb, keypad_data);
-		if (ring_buffer_is_full(&keypad_rb) != 0) {
-
-		}
-	}
+        actualizar_pantalla(); // Actualizar la pantalla después de cualquier cambio
+    }
 }
+
+void actualizar_pantalla(void)
+{
+    ssd1306_Fill(Black); // Limpiar la pantalla
+
+    // Mostrar datos de USART2
+    ssd1306_SetCursor(0, 0);
+    ssd1306_WriteString("USART2:", Font_7x10, White);
+    ssd1306_SetCursor(60, 0);
+    ssd1306_WriteString(usart2_display_buffer, Font_7x10, White);
+
+    // Mostrar datos del keypad
+    ssd1306_SetCursor(0, 20);
+    ssd1306_WriteString("Keypad:", Font_7x10, White);
+    ssd1306_SetCursor(60, 20);
+    ssd1306_WriteString(keypad_display_buffer, Font_7x10, White);
+
+    // Actualizar la pantalla OLED
+    ssd1306_UpdateScreen();
+}
+
+
 /* USER CODE END 0 */
 
 /**
@@ -275,7 +324,7 @@ static void MX_USART2_UART_Init(void)
 
   /* USER CODE END USART2_Init 1 */
   huart2.Instance = USART2;
-  huart2.Init.BaudRate = 115200;
+  huart2.Init.BaudRate = 256000;
   huart2.Init.WordLength = UART_WORDLENGTH_8B;
   huart2.Init.StopBits = UART_STOPBITS_1;
   huart2.Init.Parity = UART_PARITY_NONE;
