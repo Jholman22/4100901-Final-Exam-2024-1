@@ -119,6 +119,7 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
         if (key_pressed == '#') {
             // Reiniciar el buffer de USART2
             limpiar_buffer_usart2();
+            actualizar_pantalla();
         } else if (key_pressed == '*') {
             // Reiniciar el buffer del keypad
             limpiar_buffer_keypad();
@@ -129,9 +130,10 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
                 keypad_display_buffer[i] = keypad_display_buffer[i + 1];
             }
             keypad_display_buffer[DISPLAY_BUFFER_LEN - 1] = key_pressed; // Guardar la tecla presionada
-        }
 
-        actualizar_pantalla(); // Actualizar la pantalla después de cualquier cambio
+            // Actualizar la pantalla inmediatamente después de agregar el nuevo dígito
+            actualizar_pantalla(); // Aseguramos que se llame a la función aquí
+        }
     }
 }
 
@@ -154,6 +156,7 @@ void actualizar_pantalla(void)
     // Actualizar la pantalla OLED
     ssd1306_UpdateScreen();
 }
+
 
 
 /* USER CODE END 0 */
@@ -197,6 +200,9 @@ int main(void)
   ssd1306_UpdateScreen();
 
   HAL_UART_Receive_IT(&huart2, &usart2_data, 1);
+
+  ring_buffer_init(&usart2_rb, usart2_buffer, USART2_RB_LEN);
+  ring_buffer_init(&keypad_rb, keypad_buffer, KEYPAD_RB_LEN);
   /* USER CODE END 2 */
 
   /* Infinite loop */
